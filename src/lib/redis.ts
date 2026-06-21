@@ -1,9 +1,9 @@
+import dotenv from "dotenv";
 import Redis from "ioredis";
 import logger from "./logger";
-import dotenv from "dotenv";
 dotenv.config();
 
-const redis = new Redis(process.env.REDIS_URL);  
+const redis = new Redis(process.env.REDIS_URL as string);
 redis.on("connect", () => {
   logger.info("🚀 Redis connected successfully");
 });
