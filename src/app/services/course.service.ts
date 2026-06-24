@@ -2,12 +2,12 @@
 //      Course Service
 // ====================
 
-import { ICourse } from "../interfaces/course.interface";
-import { CustomAppError } from "../errors/customError";
+import { Prisma } from "@prisma/client";
+import logger from "../../lib/logger";
 import { prisma } from "../../lib/prisma";
 import redis from "../../lib/redis";
-import logger from "../../lib/logger";
-import { Prisma } from "@prisma/client";
+import { CustomAppError } from "../errors/customError";
+import { ICourse } from "../interfaces/course.interface";
 
 // ============================== CREATE Course ==============================
 const createCourse = async (payload: ICourse) => {
@@ -28,7 +28,7 @@ const createCourse = async (payload: ICourse) => {
         description,
         categoryId,
         instructorId,
-        previewVideo,
+        previewVideo: previewVideo ?? "",
         price,
         thumbnail,
       },
@@ -48,7 +48,7 @@ const getAllCourses = async (query: Record<string, unknown>) => {
   // Check cache first
   const cacheKey = `courses:${page}:${limit}:${query.search as string}:${query.category as string}:${query.sort as string}`;
   const cachedData = await redis.get(cacheKey);
-  
+
   if (cachedData) {
     return JSON.parse(cachedData);
   }
@@ -56,9 +56,9 @@ const getAllCourses = async (query: Record<string, unknown>) => {
   const where: Record<string, unknown> = {};
 
   // Filter By Publish Status
-  if (query.instructorId && query.instructorId !== 'undefined') {
+  if (query.instructorId && query.instructorId !== "undefined") {
     where.instructorId = query.instructorId as string;
-  } else if (query.showAll === 'true') {
+  } else if (query.showAll === "true") {
     // Admin or specific view: show everything
   } else {
     // Public view: only show published
@@ -69,7 +69,9 @@ const getAllCourses = async (query: Record<string, unknown>) => {
   if (query.search) {
     where.OR = [
       { title: { contains: query.search as string, mode: "insensitive" } },
-      { description: { contains: query.search as string, mode: "insensitive" } },
+      {
+        description: { contains: query.search as string, mode: "insensitive" },
+      },
     ];
   }
 
@@ -155,14 +157,20 @@ const getCourseById = async (id: string, userId?: string) => {
           title: true,
           order: true,
           assignments: {
-            select: { id: true, description: true, deadline: true }
+            select: { id: true, description: true, deadline: true },
           },
           lessons: {
-            select: { id: true, title: true, videoUrl: true, duration: true, order: true },
-            orderBy: { order: 'asc' }
-          }
+            select: {
+              id: true,
+              title: true,
+              videoUrl: true,
+              duration: true,
+              order: true,
+            },
+            orderBy: { order: "asc" },
+          },
         },
-        orderBy: { order: 'asc' }
+        orderBy: { order: "asc" },
       },
       _count: { select: { enrolledUsers: true } },
       reviews: {
@@ -171,11 +179,11 @@ const getCourseById = async (id: string, userId?: string) => {
           content: true,
           rating: true,
           createdAt: true,
-          user: { select: { name: true, avatar: true } }
+          user: { select: { name: true, avatar: true } },
         },
-        orderBy: { createdAt: "desc" }
-      }
-    }
+        orderBy: { createdAt: "desc" },
+      },
+    },
   });
 
   if (!course) {
@@ -185,7 +193,7 @@ const getCourseById = async (id: string, userId?: string) => {
   let isEnrolled = false;
   if (userId) {
     const enrollment = await prisma.enrollment.findUnique({
-      where: { userId_courseId: { userId, courseId: id } }
+      where: { userId_courseId: { userId, courseId: id } },
     });
     isEnrolled = !!enrollment;
   }
@@ -210,8 +218,8 @@ const updateCourse = async (id: string, payload: Partial<ICourse>) => {
       thumbnail: true,
       price: true,
       isPublished: true,
-      category: { select: { id: true, name: true } }
-    }
+      category: { select: { id: true, name: true } },
+    },
   });
 };
 
@@ -244,29 +252,39 @@ const deleteCourse = async (id: string) => {
 };
 
 // ============================== MARK Lesson Completed ==============================
-const completeLesson = async (userId: string, courseId: string, lessonId: string) => {
+const completeLesson = async (
+  userId: string,
+  courseId: string,
+  lessonId: string,
+) => {
   const enrollment = await prisma.enrollment.findUnique({
-    where: { userId_courseId: { userId, courseId } }
+    where: { userId_courseId: { userId, courseId } },
   });
 
   if (!enrollment) {
-    throw new CustomAppError(403, "Access denied: You are not enrolled in this course");
+    throw new CustomAppError(
+      403,
+      "Access denied: You are not enrolled in this course",
+    );
   }
 
   await prisma.completedLesson.upsert({
     where: { userId_lessonId: { userId, lessonId } },
     create: { userId, lessonId },
-    update: {}
+    update: {},
   });
 
   await prisma.enrollment.update({
     where: { id: enrollment.id },
-    data: { lastActivity: new Date() }
+    data: { lastActivity: new Date() },
   });
 };
 
 // ============================== GET My Enrolled Courses ==============================
-const getMyCourses = async (userId: string, query: Record<string, unknown> = {}) => {
+const getMyCourses = async (
+  userId: string,
+  query: Record<string, unknown> = {},
+) => {
   const page = Number(query.page as string) || 1;
   const limit = Number(query.limit as string) || 10;
   const skip = (page - 1) * limit;
@@ -296,11 +314,11 @@ const getMyCourses = async (userId: string, query: Record<string, unknown> = {})
                 lessons: {
                   select: {
                     id: true,
-                    completedByUsers: { 
+                    completedByUsers: {
                       where: { userId },
-                      select: { id: true }
-                    }
-                  }
+                      select: { id: true },
+                    },
+                  },
                 },
               },
             },
@@ -311,7 +329,7 @@ const getMyCourses = async (userId: string, query: Record<string, unknown> = {})
       skip,
       take: limit,
     }),
-    prisma.enrollment.count({ where: { userId } })
+    prisma.enrollment.count({ where: { userId } }),
   ]);
 
   const courses = enrollments.map((enrollment) => {
@@ -327,7 +345,10 @@ const getMyCourses = async (userId: string, query: Record<string, unknown> = {})
       });
     });
 
-    const progressPercentage = totalLessons > 0 ? Math.round((completedLessonsCount / totalLessons) * 100) : 0;
+    const progressPercentage =
+      totalLessons > 0
+        ? Math.round((completedLessonsCount / totalLessons) * 100)
+        : 0;
 
     return {
       enrollmentId: enrollment.id,
@@ -353,7 +374,7 @@ const getMyCourses = async (userId: string, query: Record<string, unknown> = {})
     courses,
     total,
     page,
-    totalPages: Math.ceil(total / limit)
+    totalPages: Math.ceil(total / limit),
   };
 };
 
@@ -365,12 +386,14 @@ const getRecommendations = async (userId: string) => {
       select: { course: { select: { category: { select: { name: true } } } } },
     });
 
-    const categories = userEnrollments.map((e) => e.course.category?.name).filter(Boolean);
-    
+    const categories = userEnrollments
+      .map((e) => e.course.category?.name)
+      .filter(Boolean);
+
     return await prisma.course.findMany({
       where: {
         category: { name: { in: categories as string[] } },
-        enrolledUsers: { none: { userId } }
+        enrolledUsers: { none: { userId } },
       },
       take: 3,
       select: {
@@ -379,8 +402,8 @@ const getRecommendations = async (userId: string) => {
         thumbnail: true,
         price: true,
         category: { select: { id: true, name: true } },
-        instructor: { select: { name: true, avatar: true } }
-      }
+        instructor: { select: { name: true, avatar: true } },
+      },
     });
   } catch (error) {
     logger.error("Recommendation Error:", error);
@@ -392,7 +415,11 @@ const getRecommendations = async (userId: string) => {
 const requestFeature = async (id: string, instructorId: string) => {
   const course = await prisma.course.findUnique({ where: { id } });
   if (!course) throw new CustomAppError(404, "Course not found");
-  if (course.instructorId !== instructorId) throw new CustomAppError(403, "You can only request features for your own courses");
+  if (course.instructorId !== instructorId)
+    throw new CustomAppError(
+      403,
+      "You can only request features for your own courses",
+    );
 
   return await prisma.course.update({
     where: { id },
@@ -407,9 +434,9 @@ const approveFeature = async (id: string, isFeatured: boolean) => {
 
   return await prisma.course.update({
     where: { id },
-    data: { 
+    data: {
       isFeatured,
-      featureRequested: false // Reset request status after admin action
+      featureRequested: false, // Reset request status after admin action
     },
   });
 };
@@ -425,5 +452,5 @@ export const courseService = {
   togglePublish,
   getRecommendations,
   requestFeature,
-  approveFeature
+  approveFeature,
 };
